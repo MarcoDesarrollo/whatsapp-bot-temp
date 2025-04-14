@@ -2,23 +2,20 @@ import os
 import re
 import logging
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 from openai import OpenAI
 from telegram import Bot
 
-# Cargar variables de entorno
-load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
-JORGE_WHATSAPP = os.getenv("JORGE_WHATSAPP")
-JORGE_CHAT_ID = 6788836691
-AUTORIZADO = "whatsapp:+5212212411481"
+# Cargar variables de entorno desde Railway
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
+JORGE_WHATSAPP = os.environ.get("JORGE_WHATSAPP")
+JORGE_CHAT_ID = 6788836691  # Puedes cambiarlo a os.environ.get("JORGE_CHAT_ID") si también lo defines
 
 # Inicializar clientes
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -145,10 +142,6 @@ def detectar_nombre_y_nss(texto):
 def webhook():
     sender = request.form.get('From')
     msg = request.form.get('Body').strip()
-
-    # if sender != AUTORIZADO:
-       #  logging.warning(f"❌ Número no autorizado: {sender}")
-       #  return "Número no autorizado para pruebas con Sandbox.", 403
 
     user_id = sender
     logging.info(f"📩 Mensaje recibido de {sender}: {msg}")
