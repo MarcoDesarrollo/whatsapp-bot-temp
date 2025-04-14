@@ -8,20 +8,34 @@ from twilio.rest import Client
 import openai
 from telegram import Bot
 
-# Configuración de claves desde variables de entorno (Railway)
+# =================== VALIDACIÓN DE VARIABLES DE ENTORNO ===================
+
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
 JORGE_WHATSAPP = os.environ.get("JORGE_WHATSAPP")
-JORGE_CHAT_ID = 6788836691  # Si también lo defines como variable, puedes usar os.environ.get("JORGE_CHAT_ID")
+JORGE_CHAT_ID = 6788836691  # Puedes hacer dinámico si lo defines también en env
 
-# Inicializar clientes
+# Debug variables (Railway logs)
+print("✅ Cargando variables de entorno:")
+print(f"🧠 OPENAI_API_KEY definida: {bool(openai.api_key)}")
+print(f"🤖 TELEGRAM_BOT_TOKEN definido: {bool(TELEGRAM_BOT_TOKEN)}")
+print(f"📞 TWILIO SID definido: {bool(TWILIO_ACCOUNT_SID)}")
+
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("❌ TELEGRAM_BOT_TOKEN no definido. Verifica en Railway.")
+if not openai.api_key:
+    raise ValueError("❌ OPENAI_API_KEY no definido. Verifica en Railway.")
+
+# =================== INICIALIZAR CLIENTES ===================
+
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# Flask setup
+# =================== CONFIGURACIÓN FLASK ===================
+
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 conversations = {}
@@ -37,6 +51,8 @@ mensaje_conciencia = (
     "*En términos reales, estás perdiendo valor año con año.*\n\n"
     "Por eso es importante tomar acción ahora. \U0001f4a1"
 )
+
+# =================== CONTEXTO IA ===================
 
 CONTEXT = """
 ### IDENTIDAD DEL ASISTENTE
@@ -129,6 +145,8 @@ Por eso es tan importante informarse y tomar decisiones a tiempo.
   - "¿Te gustaría que te ayudemos a comenzar?"
 """
 
+# =================== FUNCIONES ===================
+
 def detectar_nss(texto):
     return re.findall(r'\b\d{11}\b', texto)
 
@@ -148,7 +166,10 @@ def webhook():
     now = datetime.now()
     if user_id in ultimo_mensaje:
         if now - ultimo_mensaje[user_id] > timedelta(minutes=4):
-            conversations[user_id].append({"role": "assistant", "content": "Hola de nuevo 👋, ¿en qué más puedo ayudarte hoy? 😊"})
+            conversations[user_id].append({
+                "role": "assistant",
+                "content": "Hola de nuevo 👋, ¿en qué más puedo ayudarte hoy? 😊"
+            })
     ultimo_mensaje[user_id] = now
 
     if user_id not in conversations:
@@ -163,12 +184,11 @@ def webhook():
         keywords = ["donde estan", "donde se ubican", "ubicacion", "direccion", "domicilio", "como llegar", "telefono", "contactarlos"]
 
         if any(kw in mensaje_normalizado for kw in keywords):
-            respuesta_ubicacion = (
+            resp_msg.body(
                 "📍 Estamos ubicados en *Badianes 103, Residencial Jardines, Lerdo, Durango.*\n\n"
                 "📞 Llámanos al *871 457 2902* para más información.\n\n"
                 "🗺️ Google Maps: https://www.google.com/maps/place/Badianes+103,+Lerdo,+Dgo."
             )
-            resp_msg.body(respuesta_ubicacion)
             return str(response)
 
         if "ya cotizo" in mensaje_normalizado or "si cotizo" in mensaje_normalizado:
@@ -180,26 +200,18 @@ def webhook():
             if nss:
                 esperando_nss[user_id] = False
                 fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
-                mensaje_confirm = (
-                    f"¡Excelente decisión! Uno de nuestros asesores se pondrá en contacto.\n\n"
-                    f"¿Hay algo más en lo que pueda ayudarte por ahora? 😊"
-                )
                 notificacion = (
                     f"👋 Hola Jorge, nuevo interesado desde WhatsApp:\n\n"
                     f"📌 Nombre: {nombre.title() if nombre else 'Desconocido'}\n🗞 NSS: {nss}\n📞 WhatsApp: {sender}\n⏰ Fecha: {fecha}"
                 )
                 twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=JORGE_WHATSAPP, body=notificacion)
                 telegram_bot.send_message(chat_id=JORGE_CHAT_ID, text=notificacion)
-                resp_msg.body(mensaje_confirm)
+                resp_msg.body("¡Excelente decisión! Uno de nuestros asesores se pondrá en contacto. ¿Hay algo más en lo que pueda ayudarte por ahora? 😊")
                 return str(response)
             else:
-                resp_msg.body(
-                    "Gracias por compartirlo 🙌, pero creo que el número no está completo.\n\n"
-                    "✨ El NSS debe tener *exactamente 11 dígitos*. ¿Podrías revisarlo y volver a enviarlo por favor?"
-                )
+                resp_msg.body("Gracias por compartirlo 🙌, pero el NSS debe tener *exactamente 11 dígitos*. ¿Podrías revisarlo?")
                 return str(response)
 
-        # Generar respuesta con OpenAI GPT
         messages = [{"role": "system", "content": CONTEXT}] + conversations[user_id][-5:]
         gpt_response = openai.ChatCompletion.create(
             model="gpt-4",
@@ -209,7 +221,9 @@ def webhook():
         )
         bot_reply = gpt_response.choices[0].message.content.strip()
 
-        if any(frase in bot_reply.lower() for frase in ["puede aplicar a", "puede recuperar", "requiere tener más de 46 años"]):
+        if any(frase in bot_reply.lower() for frase in [
+            "puede aplicar a", "puede recuperar", "requiere tener más de 46 años"
+        ]):
             esperando_nss[user_id] = True
             bot_reply += f"\n\n{mensaje_conciencia}\n\n👉 Por favor, proporciónanos tu Número de Seguro Social (NSS)."
 
@@ -219,8 +233,5 @@ def webhook():
 
     except Exception as e:
         logging.error(f"❌ Error procesando mensaje: {e}")
-        resp_msg.body("Lo siento, ocurrió un error. Inténtalo nuevamente en unos momentos.")
+        resp_msg.body("Lo siento, ocurrió un error. Inténtalo nuevamente más tarde.")
         return str(response)
-
-if __name__ == '__main__':
-    app.run(port=5000, debug=True)
