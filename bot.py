@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import unicodedata
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from flask import Flask, request
@@ -34,12 +35,12 @@ estado_usuario = {}
 ultimo_mensaje = {}
 
 mensaje_conciencia = (
-    "\U0001f4cc *Informaci\u00f3n importante si cotizas bajo la Ley 97:*\n\n"
-    "\U0001f538 Si no usas tu ahorro o no ejerces alg\u00fan cr\u00e9dito, ese dinero ser\u00e1 utilizado autom\u00e1ticamente para pagar tu pensi\u00f3n.\n"
-    "*Es decir, \u00a1NO LO COBRAR\u00c1S al final de tu vida laboral!*\n\n"
-    "\U0001f4c9 Adem\u00e1s, al estar administrado por INFONAVIT, solo genera un *2% de inter\u00e9s anual*, mientras que la inflaci\u00f3n en M\u00e9xico es *mayor al 5%*.\n"
-    "*En t\u00e9rminos reales, est\u00e1s perdiendo valor a\u00f1o con a\u00f1o.*\n\n"
-    "Por eso es importante tomar acci\u00f3n ahora. \U0001f4a1"
+    "📌 *Información importante si cotizas bajo la Ley 97:*\n\n"
+    "🔸 Si no usas tu ahorro o no ejerces algún crédito, ese dinero será utilizado automáticamente para pagar tu pensión.\n"
+    "*Es decir, ¡NO LO COBRARÁS al final de tu vida laboral!*\n\n"
+    "📉 Además, al estar administrado por INFONAVIT, solo genera un *2% de interés anual*, mientras que la inflación en México es *mayor al 5%*.\n"
+    "*En términos reales, estás perdiendo valor año con año.*\n\n"
+    "Por eso es importante tomar acción ahora. 💡"
 )
 
 CONTEXT = """
@@ -131,7 +132,7 @@ Por eso es tan importante informarse y tomar decisiones a tiempo.
 - Cierra con preguntas como:
   - "¿Deseas iniciar?"
   - "¿Te gustaría que te ayudemos a comenzar?"
-"""
+"""  # (Aquí dejas todo tu bloque de contexto tal como ya lo tienes)
 
 def detectar_nss(texto):
     return re.findall(r'\b\d{11}\b', texto)
@@ -147,16 +148,16 @@ def webhook():
     msg = request.form.get('Body').strip()
 
     if sender != AUTORIZADO:
-        logging.warning(f"\u274c N\u00famero no autorizado: {sender}")
-        return "N\u00famero no autorizado para pruebas con Sandbox.", 403
+        logging.warning(f"❌ Número no autorizado: {sender}")
+        return "Número no autorizado para pruebas con Sandbox.", 403
 
     user_id = sender
-    logging.info(f"\ud83d\udce9 Mensaje recibido de {sender}: {msg}")
+    logging.info(f"📩 Mensaje recibido de {sender}: {msg}")
 
     now = datetime.now()
     if user_id in ultimo_mensaje:
         if now - ultimo_mensaje[user_id] > timedelta(minutes=4):
-            conversations[user_id].append({"role": "assistant", "content": "Hola de nuevo \ud83d\udc4b, \u00bfen qu\u00e9 m\u00e1s puedo ayudarte hoy? \ud83d\ude0a"})
+            conversations[user_id].append({"role": "assistant", "content": "Hola de nuevo 👋, ¿en qué más puedo ayudarte hoy? 😊"})
     ultimo_mensaje[user_id] = now
 
     if user_id not in conversations:
@@ -167,23 +168,46 @@ def webhook():
     resp_msg = response.message()
 
     try:
-        mensaje_normalizado = msg.lower().replace("\u00e1", "a").replace("\u00e9", "e").replace("\u00ed", "i").replace("\u00f3", "o").replace("\u00fa", "u")
-        keywords = ["donde estan", "donde se ubican", "ubicacion", "direccion", "direccion exacta", "domicilio", "visitar", "oficina", "como llegar", "en donde estan", "estan ubicados", "me puedes dar la direccion", "mapa", "telefono", "agendar cita", "tienen local", "atienden fisicamente", "estan en cdmx", "son presenciales", "puedo ir", "donde se encuentran", "en donde est\u00e1n", "puedo pedir mas informacion a algun numero", "numero de contacto", "como contactarlos"]
+        # Normalización completa
+        mensaje_normalizado = ''.join(
+            c for c in unicodedata.normalize('NFD', msg.lower()) if unicodedata.category(c) != 'Mn'
+        )
+
+        keywords = [
+            "donde estan", "donde se ubican", "ubicacion", "direccion", "direccion exacta",
+            "domicilio", "visitar", "oficina", "como llegar", "en donde estan", "estan ubicados",
+            "me puedes dar la direccion", "mapa", "telefono", "agendar cita", "tienen local",
+            "atienden fisicamente", "estan en cdmx", "son presenciales", "puedo ir",
+            "donde se encuentran", "en donde se ubican"
+        ]
 
         if any(kw in mensaje_normalizado for kw in keywords):
-            respuesta_ubicacion = (
-                "\ud83d\udccd Estamos ubicados en *Badianes 103, Residencial Jardines, Lerdo, Durango.*\n\n"
-                "\ud83d\udcde Puedes llamarnos al *871 457 2902* para agendar una cita o resolver tus dudas.\n\n"
-                "\ud83d\udddf\ufe0f Tambi\u00e9n puedes vernos en Google Maps:\n"
+            # Respuesta normal
+            mensaje_texto = (
+                "📍 Estamos ubicados en *Badianes 103, Residencial Jardines, Lerdo, Durango.*\n\n"
+                "📞 Puedes llamarnos al *871 457 2902* para agendar una cita o resolver tus dudas.\n\n"
+                "🗺️ También puedes vernos en Google Maps:\n"
                 "https://www.google.com/maps/place/Badianes+103,+Lerdo,+Dgo.\n\n"
-                "Ser\u00e1 un gusto atenderte personalmente."
+                "Será un gusto atenderte personalmente."
             )
-            resp_msg.body(respuesta_ubicacion)
+            resp_msg.body(mensaje_texto)
+
+            # Enviar pin de ubicación real
+            try:
+                twilio_client.messages.create(
+                    from_=TWILIO_WHATSAPP_NUMBER,
+                    to=sender,
+                    persistent_action=["geo:25.553943,-103.5339509|Gestoría C en pensiones"],
+                    body="🧭 Ubicación directa de nuestra oficina en Lerdo. ¡Te esperamos!"
+                )
+            except Exception as e:
+                logging.warning(f"No se pudo enviar ubicación con coordenadas: {e}")
+
             return str(response)
 
         if "ya cotizo" in mensaje_normalizado or "si cotizo" in mensaje_normalizado:
             estado_usuario[user_id] = "cotiza"
-            conversations[user_id].append({"role": "user", "content": "Cambio de estado: el usuario ahora s\u00ed cotiza"})
+            conversations[user_id].append({"role": "user", "content": "Cambio de estado: el usuario ahora sí cotiza"})
 
         if esperando_nss.get(user_id):
             nombre, nss = detectar_nombre_y_nss(msg)
@@ -191,16 +215,16 @@ def webhook():
                 esperando_nss[user_id] = False
                 fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
                 mensaje_confirm = (
-                    f"\u00a1Excelente decisi\u00f3n! Ya con esta informaci\u00f3n, uno de nuestros asesores se pondr\u00e1 en contacto.\n"
-                    f"Por ahora no necesitamos m\u00e1s documentos. \u00a1Gracias por su confianza!\n\n"
-                    f"\u00bfTiene alguna otra pregunta o inquietud que pueda atender en este momento?"
+                    f"¡Excelente decisión! Ya con esta información, uno de nuestros asesores se pondrá en contacto.\n"
+                    f"Por ahora no necesitamos más documentos. ¡Gracias por su confianza!\n\n"
+                    f"¿Tiene alguna otra pregunta o inquietud que pueda atender en este momento?"
                 )
                 notificacion = (
-                    f"\ud83d\udc4b Hola Jorge,\nNuevo interesado desde WhatsApp:\n\n"
-                    f"\ud83d\udccc Nombre: {nombre.title() if nombre else 'Desconocido'}\n"
-                    f"\ud83d\uddd3 NSS: {nss}\n"
-                    f"\ud83d\udcde WhatsApp: {sender}\n"
-                    f"\u23f0 Fecha: {fecha}"
+                    f"👋 Hola Jorge,\nNuevo interesado desde WhatsApp:\n\n"
+                    f"📌 Nombre: {nombre.title() if nombre else 'Desconocido'}\n"
+                    f"📅 NSS: {nss}\n"
+                    f"📱 WhatsApp: {sender}\n"
+                    f"⏰ Fecha: {fecha}"
                 )
                 twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=JORGE_WHATSAPP, body=notificacion)
                 telegram_bot.send_message(chat_id=JORGE_CHAT_ID, text=notificacion)
@@ -208,9 +232,9 @@ def webhook():
                 return str(response)
             else:
                 resp_msg.body(
-                    "Gracias por compartirlo \ud83d\ude4c, pero creo que el n\u00famero no est\u00e1 completo.\n\n"
-                    "\u2728 El NSS debe tener *exactamente 11 d\u00edgitos*. A veces se nos puede ir un n\u00famero o un espacio de m\u00e1s \ud83d\ude09.\n\n"
-                    "\u00bfPodr\u00edas revisarlo y volver a enviarlo por favor?"
+                    "Gracias por compartirlo 🙌, pero creo que el número no está completo.\n\n"
+                    "✨ El NSS debe tener *exactamente 11 dígitos*. A veces se nos puede ir un número o un espacio de más 😉.\n\n"
+                    "¿Podrías revisarlo y volver a enviarlo por favor?"
                 )
                 return str(response)
 
@@ -223,19 +247,18 @@ def webhook():
         )
         bot_reply = gpt_response.choices[0].message.content.strip()
 
-        if any(frase in bot_reply.lower() for frase in ["puede aplicar a", "puede recuperar", "requiere tener m\u00e1s de 46 a\u00f1os"]):
+        if any(frase in bot_reply.lower() for frase in ["puede aplicar a", "puede recuperar", "requiere tener más de 46 años"]):
             esperando_nss[user_id] = True
-            bot_reply += f"\n\n{mensaje_conciencia}\n\n\ud83d\udc49 Por favor, proporcione su N\u00famero de Seguro Social (NSS)."
+            bot_reply += f"\n\n{mensaje_conciencia}\n\n👉 Por favor, proporcione su Número de Seguro Social (NSS)."
 
         conversations[user_id].append({"role": "assistant", "content": bot_reply})
         resp_msg.body(bot_reply)
         return str(response)
 
     except Exception as e:
-        logging.error(f"\u274c Error procesando mensaje: {e}")
-        resp_msg.body("Lo siento, ocurri\u00f3 un error. Int\u00e9ntelo de nuevo.")
+        logging.error(f"❌ Error procesando mensaje: {e}")
+        resp_msg.body("Lo siento, ocurrió un error. Inténtelo de nuevo.")
         return str(response)
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=True)
-
