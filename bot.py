@@ -5,24 +5,23 @@ from datetime import datetime, timedelta
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
-from openai import OpenAI
+import openai
 from telegram import Bot
 
-# Cargar variables de entorno desde Railway
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+# Configuración de claves desde variables de entorno (Railway)
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
 JORGE_WHATSAPP = os.environ.get("JORGE_WHATSAPP")
-JORGE_CHAT_ID = 6788836691  # Puedes cambiarlo a os.environ.get("JORGE_CHAT_ID") si también lo defines
+JORGE_CHAT_ID = 6788836691  # Si también lo defines como variable, puedes usar os.environ.get("JORGE_CHAT_ID")
 
 # Inicializar clientes
-client = OpenAI(api_key=OPENAI_API_KEY)
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# Setup
+# Flask setup
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 conversations = {}
@@ -142,8 +141,8 @@ def detectar_nombre_y_nss(texto):
 def webhook():
     sender = request.form.get('From')
     msg = request.form.get('Body').strip()
-
     user_id = sender
+
     logging.info(f"📩 Mensaje recibido de {sender}: {msg}")
 
     now = datetime.now()
@@ -200,8 +199,9 @@ def webhook():
                 )
                 return str(response)
 
+        # Generar respuesta con OpenAI GPT
         messages = [{"role": "system", "content": CONTEXT}] + conversations[user_id][-5:]
-        gpt_response = client.chat.completions.create(
+        gpt_response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=messages,
             temperature=0.6,
