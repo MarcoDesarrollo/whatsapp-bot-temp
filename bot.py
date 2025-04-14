@@ -2,40 +2,30 @@ import os
 import re
 import logging
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
-import openai
+from openai import OpenAI
 from telegram import Bot
 
-# =================== VALIDACIÓN DE VARIABLES DE ENTORNO ===================
+# Cargar variables de entorno
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
+JORGE_WHATSAPP = os.getenv("JORGE_WHATSAPP")
+JORGE_CHAT_ID = int(os.getenv("JORGE_CHAT_ID", "6788836691"))
+AUTORIZADO = "whatsapp:+5212212411481"
 
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
-TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
-JORGE_WHATSAPP = os.environ.get("JORGE_WHATSAPP")
-JORGE_CHAT_ID = 6788836691  # Puedes hacer dinámico si lo defines también en env
-
-# Debug variables (Railway logs)
-print("✅ Cargando variables de entorno:")
-print(f"🧠 OPENAI_API_KEY definida: {bool(openai.api_key)}")
-print(f"🤖 TELEGRAM_BOT_TOKEN definido: {bool(TELEGRAM_BOT_TOKEN)}")
-print(f"📞 TWILIO SID definido: {bool(TWILIO_ACCOUNT_SID)}")
-
-if not TELEGRAM_BOT_TOKEN:
-    raise ValueError("❌ TELEGRAM_BOT_TOKEN no definido. Verifica en Railway.")
-if not openai.api_key:
-    raise ValueError("❌ OPENAI_API_KEY no definido. Verifica en Railway.")
-
-# =================== INICIALIZAR CLIENTES ===================
-
+# Inicializar clientes
+client = OpenAI(api_key=OPENAI_API_KEY)
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# =================== CONFIGURACIÓN FLASK ===================
-
+# Setup
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 conversations = {}
@@ -44,15 +34,13 @@ estado_usuario = {}
 ultimo_mensaje = {}
 
 mensaje_conciencia = (
-    "\U0001f4cc *Información importante si cotizas bajo la Ley 97:*\n\n"
-    "\U0001f538 Si no usas tu ahorro o no ejerces algún crédito, ese dinero será utilizado automáticamente para pagar tu pensión.\n"
-    "*Es decir, ¡NO LO COBRARÁS al final de tu vida laboral!*\n\n"
-    "\U0001f4c9 Además, al estar administrado por INFONAVIT, solo genera un *2% de interés anual*, mientras que la inflación en México es *mayor al 5%*.\n"
-    "*En términos reales, estás perdiendo valor año con año.*\n\n"
-    "Por eso es importante tomar acción ahora. \U0001f4a1"
+    "\U0001f4cc *Informaci\u00f3n importante si cotizas bajo la Ley 97:*\n\n"
+    "\U0001f538 Si no usas tu ahorro o no ejerces alg\u00fan cr\u00e9dito, ese dinero ser\u00e1 utilizado autom\u00e1ticamente para pagar tu pensi\u00f3n.\n"
+    "*Es decir, \u00a1NO LO COBRAR\u00c1S al final de tu vida laboral!*\n\n"
+    "\U0001f4c9 Adem\u00e1s, al estar administrado por INFONAVIT, solo genera un *2% de inter\u00e9s anual*, mientras que la inflaci\u00f3n en M\u00e9xico es *mayor al 5%*.\n"
+    "*En t\u00e9rminos reales, est\u00e1s perdiendo valor a\u00f1o con a\u00f1o.*\n\n"
+    "Por eso es importante tomar acci\u00f3n ahora. \U0001f4a1"
 )
-
-# =================== CONTEXTO IA ===================
 
 CONTEXT = """
 ### IDENTIDAD DEL ASISTENTE
@@ -145,8 +133,6 @@ Por eso es tan importante informarse y tomar decisiones a tiempo.
   - "¿Te gustaría que te ayudemos a comenzar?"
 """
 
-# =================== FUNCIONES ===================
-
 def detectar_nss(texto):
     return re.findall(r'\b\d{11}\b', texto)
 
@@ -159,17 +145,18 @@ def detectar_nombre_y_nss(texto):
 def webhook():
     sender = request.form.get('From')
     msg = request.form.get('Body').strip()
-    user_id = sender
 
-    logging.info(f"📩 Mensaje recibido de {sender}: {msg}")
+    if sender != AUTORIZADO:
+        logging.warning(f"\u274c N\u00famero no autorizado: {sender}")
+        return "N\u00famero no autorizado para pruebas con Sandbox.", 403
+
+    user_id = sender
+    logging.info(f"\ud83d\udce9 Mensaje recibido de {sender}: {msg}")
 
     now = datetime.now()
     if user_id in ultimo_mensaje:
         if now - ultimo_mensaje[user_id] > timedelta(minutes=4):
-            conversations[user_id].append({
-                "role": "assistant",
-                "content": "Hola de nuevo 👋, ¿en qué más puedo ayudarte hoy? 😊"
-            })
+            conversations[user_id].append({"role": "assistant", "content": "Hola de nuevo \ud83d\udc4b, \u00bfen qu\u00e9 m\u00e1s puedo ayudarte hoy? \ud83d\ude0a"})
     ultimo_mensaje[user_id] = now
 
     if user_id not in conversations:
@@ -180,40 +167,55 @@ def webhook():
     resp_msg = response.message()
 
     try:
-        mensaje_normalizado = msg.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-        keywords = ["donde estan", "donde se ubican", "ubicacion", "direccion", "domicilio", "como llegar", "telefono", "contactarlos"]
+        mensaje_normalizado = msg.lower().replace("\u00e1", "a").replace("\u00e9", "e").replace("\u00ed", "i").replace("\u00f3", "o").replace("\u00fa", "u")
+        keywords = ["donde estan", "donde se ubican", "ubicacion", "direccion", "direccion exacta", "domicilio", "visitar", "oficina", "como llegar", "en donde estan", "estan ubicados", "me puedes dar la direccion", "mapa", "telefono", "agendar cita", "tienen local", "atienden fisicamente", "estan en cdmx", "son presenciales", "puedo ir", "donde se encuentran", "en donde est\u00e1n", "puedo pedir mas informacion a algun numero", "numero de contacto", "como contactarlos"]
 
         if any(kw in mensaje_normalizado for kw in keywords):
-            resp_msg.body(
-                "📍 Estamos ubicados en *Badianes 103, Residencial Jardines, Lerdo, Durango.*\n\n"
-                "📞 Llámanos al *871 457 2902* para más información.\n\n"
-                "🗺️ Google Maps: https://www.google.com/maps/place/Badianes+103,+Lerdo,+Dgo."
+            respuesta_ubicacion = (
+                "\ud83d\udccd Estamos ubicados en *Badianes 103, Residencial Jardines, Lerdo, Durango.*\n\n"
+                "\ud83d\udcde Puedes llamarnos al *871 457 2902* para agendar una cita o resolver tus dudas.\n\n"
+                "\ud83d\udddf\ufe0f Tambi\u00e9n puedes vernos en Google Maps:\n"
+                "https://www.google.com/maps/place/Badianes+103,+Lerdo,+Dgo.\n\n"
+                "Ser\u00e1 un gusto atenderte personalmente."
             )
+            resp_msg.body(respuesta_ubicacion)
             return str(response)
 
         if "ya cotizo" in mensaje_normalizado or "si cotizo" in mensaje_normalizado:
             estado_usuario[user_id] = "cotiza"
-            conversations[user_id].append({"role": "user", "content": "Cambio de estado: el usuario ahora sí cotiza"})
+            conversations[user_id].append({"role": "user", "content": "Cambio de estado: el usuario ahora s\u00ed cotiza"})
 
         if esperando_nss.get(user_id):
             nombre, nss = detectar_nombre_y_nss(msg)
             if nss:
                 esperando_nss[user_id] = False
                 fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+                mensaje_confirm = (
+                    f"\u00a1Excelente decisi\u00f3n! Ya con esta informaci\u00f3n, uno de nuestros asesores se pondr\u00e1 en contacto.\n"
+                    f"Por ahora no necesitamos m\u00e1s documentos. \u00a1Gracias por su confianza!\n\n"
+                    f"\u00bfTiene alguna otra pregunta o inquietud que pueda atender en este momento?"
+                )
                 notificacion = (
-                    f"👋 Hola Jorge, nuevo interesado desde WhatsApp:\n\n"
-                    f"📌 Nombre: {nombre.title() if nombre else 'Desconocido'}\n🗞 NSS: {nss}\n📞 WhatsApp: {sender}\n⏰ Fecha: {fecha}"
+                    f"\ud83d\udc4b Hola Jorge,\nNuevo interesado desde WhatsApp:\n\n"
+                    f"\ud83d\udccc Nombre: {nombre.title() if nombre else 'Desconocido'}\n"
+                    f"\ud83d\uddd3 NSS: {nss}\n"
+                    f"\ud83d\udcde WhatsApp: {sender}\n"
+                    f"\u23f0 Fecha: {fecha}"
                 )
                 twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=JORGE_WHATSAPP, body=notificacion)
                 telegram_bot.send_message(chat_id=JORGE_CHAT_ID, text=notificacion)
-                resp_msg.body("¡Excelente decisión! Uno de nuestros asesores se pondrá en contacto. ¿Hay algo más en lo que pueda ayudarte por ahora? 😊")
+                resp_msg.body(mensaje_confirm)
                 return str(response)
             else:
-                resp_msg.body("Gracias por compartirlo 🙌, pero el NSS debe tener *exactamente 11 dígitos*. ¿Podrías revisarlo?")
+                resp_msg.body(
+                    "Gracias por compartirlo \ud83d\ude4c, pero creo que el n\u00famero no est\u00e1 completo.\n\n"
+                    "\u2728 El NSS debe tener *exactamente 11 d\u00edgitos*. A veces se nos puede ir un n\u00famero o un espacio de m\u00e1s \ud83d\ude09.\n\n"
+                    "\u00bfPodr\u00edas revisarlo y volver a enviarlo por favor?"
+                )
                 return str(response)
 
         messages = [{"role": "system", "content": CONTEXT}] + conversations[user_id][-5:]
-        gpt_response = openai.ChatCompletion.create(
+        gpt_response = client.chat.completions.create(
             model="gpt-4",
             messages=messages,
             temperature=0.6,
@@ -221,17 +223,18 @@ def webhook():
         )
         bot_reply = gpt_response.choices[0].message.content.strip()
 
-        if any(frase in bot_reply.lower() for frase in [
-            "puede aplicar a", "puede recuperar", "requiere tener más de 46 años"
-        ]):
+        if any(frase in bot_reply.lower() for frase in ["puede aplicar a", "puede recuperar", "requiere tener m\u00e1s de 46 a\u00f1os"]):
             esperando_nss[user_id] = True
-            bot_reply += f"\n\n{mensaje_conciencia}\n\n👉 Por favor, proporciónanos tu Número de Seguro Social (NSS)."
+            bot_reply += f"\n\n{mensaje_conciencia}\n\n\ud83d\udc49 Por favor, proporcione su N\u00famero de Seguro Social (NSS)."
 
         conversations[user_id].append({"role": "assistant", "content": bot_reply})
         resp_msg.body(bot_reply)
         return str(response)
 
     except Exception as e:
-        logging.error(f"❌ Error procesando mensaje: {e}")
-        resp_msg.body("Lo siento, ocurrió un error. Inténtalo nuevamente más tarde.")
+        logging.error(f"\u274c Error procesando mensaje: {e}")
+        resp_msg.body("Lo siento, ocurri\u00f3 un error. Int\u00e9ntelo de nuevo.")
         return str(response)
+
+if __name__ == '__main__':
+    app.run(port=int(os.environ.get("PORT", 8080)), debug=True)
