@@ -147,9 +147,10 @@ def webhook():
     sender = request.form.get('From')
     msg = request.form.get('Body').strip()
 
-    if sender != AUTORIZADO:
-        logging.warning(f"❌ Número no autorizado: {sender}")
-        return "Número no autorizado para pruebas con Sandbox.", 403
+    # Elimina o comenta esta parte si ya estás fuera de Sandbox
+# if sender != AUTORIZADO:
+#     logging.warning(f"❌ Número no autorizado: {sender}")
+#     return "Número no autorizado para pruebas con Sandbox.", 403
 
     user_id = sender
     logging.info(f"📩 Mensaje recibido de {sender}: {msg}")
