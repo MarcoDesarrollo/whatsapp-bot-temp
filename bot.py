@@ -2,11 +2,10 @@ import os
 import re
 import logging
 import unicodedata
+import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client
 from openai import OpenAI
 from telegram import Bot
 
@@ -14,21 +13,19 @@ from telegram import Bot
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
+WHATSAPP_CLOUD_API_TOKEN = os.getenv("WHATSAPP_CLOUD_API_TOKEN")
+WHATSAPP_CLOUD_PHONE_ID = os.getenv("WHATSAPP_CLOUD_PHONE_ID")
+WHATSAPP_TEMPLATE_NAME = os.getenv("WHATSAPP_TEMPLATE_NAME")
 JORGE_WHATSAPP = os.getenv("JORGE_WHATSAPP")
 JORGE_CHAT_ID = int(os.getenv("JORGE_CHAT_ID", "6788836691"))
-AUTORIZADO = "whatsapp:+5212212411481"
 
-# Inicializar clientes
+# Inicializar servicios
 client = OpenAI(api_key=OPENAI_API_KEY)
-twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-# Setup
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
+
+# Estados
 conversations = {}
 esperando_nss = {}
 estado_usuario = {}
@@ -132,7 +129,7 @@ Por eso es tan importante informarse y tomar decisiones a tiempo.
 - Cierra con preguntas como:
   - "¿Deseas iniciar?"
   - "¿Te gustaría que te ayudemos a comenzar?"
-"""  # (Aquí dejas todo tu bloque de contexto tal como ya lo tienes)
+"""  # (Aquí dejas todo tu bloque de contexto tal como ya lo tienes) # Tu bloque completo de contexto GPT (como lo pegaste antes)
 
 def detectar_nss(texto):
     return re.findall(r'\b\d{11}\b', texto)
@@ -142,36 +139,83 @@ def detectar_nombre_y_nss(texto):
     nombre = texto.replace(nss[0], "").strip() if nss else None
     return nombre, nss[0] if nss else None
 
+def send_whatsapp_template_message(to, nombre, nss, numero, fecha):
+    url = f"https://graph.facebook.com/v19.0/{WHATSAPP_CLOUD_PHONE_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_CLOUD_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to.replace("whatsapp:", ""),
+        "type": "template",
+        "template": {
+            "name": WHATSAPP_TEMPLATE_NAME,
+            "language": {"code": "es_MX"},
+            "components": [{
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": nombre or "Desconocido"},
+                    {"type": "text", "text": nss},
+                    {"type": "text", "text": numero.replace("whatsapp:", "")},
+                    {"type": "text", "text": fecha}
+                ]
+            }]
+        }
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    logging.info(f"[Cloud API] Respuesta: {response.status_code} - {response.text}")
+
+@app.route("/whatsapp", methods=["GET"])
+def verify_webhook():
+    VERIFY_TOKEN = "mi_webhook_token"
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        logging.info("✅ Webhook verificado correctamente")
+        return challenge, 200
+    else:
+        logging.warning("❌ Falló la verificación del webhook")
+        return "Token de verificación inválido", 403
+
 @app.route("/whatsapp", methods=['POST'])
 def webhook():
-    sender = request.form.get('From')
-    msg = request.form.get('Body').strip()
-
-    # Elimina o comenta esta parte si ya estás fuera de Sandbox
-# if sender != AUTORIZADO:
-#     logging.warning(f"❌ Número no autorizado: {sender}")
-#     return "Número no autorizado para pruebas con Sandbox.", 403
-
-    user_id = sender
-    logging.info(f"📩 Mensaje recibido de {sender}: {msg}")
-
-    now = datetime.now()
-    if user_id in ultimo_mensaje:
-        if now - ultimo_mensaje[user_id] > timedelta(minutes=4):
-            conversations[user_id].append({"role": "assistant", "content": "Hola de nuevo 👋, ¿en qué más puedo ayudarte hoy? 😊"})
-    ultimo_mensaje[user_id] = now
-
-    if user_id not in conversations:
-        conversations[user_id] = []
-
-    conversations[user_id].append({"role": "user", "content": msg})
-    response = MessagingResponse()
-    resp_msg = response.message()
+    data = request.get_json()
+    logging.info(f"📥 Payload recibido: {data}")
 
     try:
-        # Normalización completa
+        entry = data["entry"][0]
+        changes = entry["changes"][0]
+        value = changes["value"]
+        messages = value.get("messages")
+
+        if not messages:
+            return "No hay mensajes", 200
+
+        message = messages[0]
+        sender = message["from"]
+        msg = message["text"]["body"].strip()
+        user_id = sender
+
+        logging.info(f"📩 Mensaje recibido de {sender}: {msg}")
+
+        now = datetime.now()
+        if user_id in ultimo_mensaje:
+            if now - ultimo_mensaje[user_id] > timedelta(minutes=4):
+                conversations[user_id].append({
+                    "role": "assistant",
+                    "content": "Hola de nuevo 👋, ¿en qué más puedo ayudarte hoy? 😊"
+                })
+        ultimo_mensaje[user_id] = now
+
+        if user_id not in conversations:
+            conversations[user_id] = []
+        conversations[user_id].append({"role": "user", "content": msg})
+
         mensaje_normalizado = ''.join(
-            c for c in unicodedata.normalize('NFD', msg.lower()) if unicodedata.category(c) != 'Mn'
+            c for c in unicodedata.normalize('NFD', msg.lower())
+            if unicodedata.category(c) != 'Mn'
         )
 
         keywords = [
@@ -183,7 +227,6 @@ def webhook():
         ]
 
         if any(kw in mensaje_normalizado for kw in keywords):
-            # Respuesta normal
             mensaje_texto = (
                 "📍 Estamos ubicados en *Badianes 103, Residencial Jardines, Lerdo, Durango.*\n\n"
                 "📞 Puedes llamarnos al *871 457 2902* para agendar una cita o resolver tus dudas.\n\n"
@@ -191,20 +234,24 @@ def webhook():
                 "https://www.google.com/maps/place/Badianes+103,+Lerdo,+Dgo.\n\n"
                 "Será un gusto atenderte personalmente."
             )
-            resp_msg.body(mensaje_texto)
-
-            # Enviar pin de ubicación real
             try:
-                twilio_client.messages.create(
-                    from_=TWILIO_WHATSAPP_NUMBER,
-                    to=sender,
-                    persistent_action=["geo:25.553943,-103.5339509|Gestoría C en pensiones"],
-                    body="🧭 Ubicación directa de nuestra oficina en Lerdo. ¡Te esperamos!"
+                response_api = requests.post(
+                    f"https://graph.facebook.com/v19.0/{WHATSAPP_CLOUD_PHONE_ID}/messages",
+                    headers={
+                        "Authorization": f"Bearer {WHATSAPP_CLOUD_API_TOKEN}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "messaging_product": "whatsapp",
+                        "to": sender,
+                        "type": "text",
+                        "text": {"body": mensaje_texto}
+                    }
                 )
+                logging.info(f"✅ Ubicación enviada por Cloud API: {response_api.status_code} - {response_api.text}")
             except Exception as e:
-                logging.warning(f"No se pudo enviar ubicación con coordenadas: {e}")
-
-            return str(response)
+                logging.warning(f"❌ No se pudo enviar ubicación con Cloud API: {e}")
+            return "ok", 200
 
         if "ya cotizo" in mensaje_normalizado or "si cotizo" in mensaje_normalizado:
             estado_usuario[user_id] = "cotiza"
@@ -216,9 +263,9 @@ def webhook():
                 esperando_nss[user_id] = False
                 fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
                 mensaje_confirm = (
-                    f"¡Excelente decisión! Ya con esta información, uno de nuestros asesores se pondrá en contacto.\n"
-                    f"Por ahora no necesitamos más documentos. ¡Gracias por su confianza!\n\n"
-                    f"¿Tiene alguna otra pregunta o inquietud que pueda atender en este momento?"
+                    "¡Excelente decisión! Ya con esta información, uno de nuestros asesores se pondrá en contacto.\n"
+                    "Por ahora no necesitamos más documentos. ¡Gracias por su confianza!\n\n"
+                    "¿Tiene alguna otra pregunta o inquietud que pueda atender en este momento?"
                 )
                 notificacion = (
                     f"👋 Hola Jorge,\nNuevo interesado desde WhatsApp:\n\n"
@@ -227,17 +274,49 @@ def webhook():
                     f"📱 WhatsApp: {sender}\n"
                     f"⏰ Fecha: {fecha}"
                 )
-                twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=JORGE_WHATSAPP, body=notificacion)
+                send_whatsapp_template_message(
+                    to=JORGE_WHATSAPP,
+                    nombre=nombre.title() if nombre else "Desconocido",
+                    nss=nss,
+                    numero=sender,
+                    fecha=fecha
+                )
                 telegram_bot.send_message(chat_id=JORGE_CHAT_ID, text=notificacion)
-                resp_msg.body(mensaje_confirm)
-                return str(response)
+
+                requests.post(
+                    f"https://graph.facebook.com/v19.0/{WHATSAPP_CLOUD_PHONE_ID}/messages",
+                    headers={
+                        "Authorization": f"Bearer {WHATSAPP_CLOUD_API_TOKEN}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "messaging_product": "whatsapp",
+                        "to": sender,
+                        "type": "text",
+                        "text": {"body": mensaje_confirm}
+                    }
+                )
+                return "ok", 200
             else:
-                resp_msg.body(
+                error_msg = (
                     "Gracias por compartirlo 🙌, pero creo que el número no está completo.\n\n"
                     "✨ El NSS debe tener *exactamente 11 dígitos*. A veces se nos puede ir un número o un espacio de más 😉.\n\n"
                     "¿Podrías revisarlo y volver a enviarlo por favor?"
                 )
-                return str(response)
+                requests.post(
+                    f"https://graph.facebook.com/v19.0/{WHATSAPP_CLOUD_PHONE_ID}/messages",
+                    headers={
+                        "Authorization": f"Bearer {WHATSAPP_CLOUD_API_TOKEN}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "messaging_product": "whatsapp",
+                        "to": sender,
+                        "type": "text",
+                        "text": {"body": error_msg}
+                    }
+                )
+                return "ok", 200
 
         messages = [{"role": "system", "content": CONTEXT}] + conversations[user_id][-5:]
         gpt_response = client.chat.completions.create(
@@ -248,18 +327,33 @@ def webhook():
         )
         bot_reply = gpt_response.choices[0].message.content.strip()
 
-        if any(frase in bot_reply.lower() for frase in ["puede aplicar a", "puede recuperar", "requiere tener más de 46 años"]):
+        if any(frase in bot_reply.lower() for frase in [
+            "puede aplicar a", "puede recuperar", "requiere tener más de 46 años"
+        ]):
             esperando_nss[user_id] = True
             bot_reply += f"\n\n{mensaje_conciencia}\n\n👉 Por favor, proporcione su Número de Seguro Social (NSS)."
 
         conversations[user_id].append({"role": "assistant", "content": bot_reply})
-        resp_msg.body(bot_reply)
-        return str(response)
+
+        response_api = requests.post(
+            f"https://graph.facebook.com/v19.0/{WHATSAPP_CLOUD_PHONE_ID}/messages",
+            headers={
+                "Authorization": f"Bearer {WHATSAPP_CLOUD_API_TOKEN}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "messaging_product": "whatsapp",
+                "to": sender,
+                "type": "text",
+                "text": {"body": bot_reply}
+            }
+        )
+        logging.info(f"✅ Respuesta enviada por Cloud API: {response_api.status_code} - {response_api.text}")
+        return "ok", 200
 
     except Exception as e:
         logging.error(f"❌ Error procesando mensaje: {e}")
-        resp_msg.body("Lo siento, ocurrió un error. Inténtelo de nuevo.")
-        return str(response)
+        return "Lo siento, ocurrió un error. Inténtelo de nuevo.", 200
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=True)
