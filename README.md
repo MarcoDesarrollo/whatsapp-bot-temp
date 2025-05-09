@@ -1,13 +1,23 @@
-# WhatsApp Bot para Gestión de Pensiones
+# 🤖 WhatsApp Bot para Gestión de Pensiones – Gestoría Calificada
 
-Este bot responde en WhatsApp usando Flask, OpenAI, Twilio y Telegram. Ayuda a precalificar usuarios y notifica a asesores automáticamente.
+Este bot automatiza la atención vía WhatsApp para asesoría en pensiones e INFONAVIT. Usa inteligencia artificial (OpenAI) para responder de forma personalizada, y se conecta con Twilio, Supabase y Telegram para registrar leads, guardar conversaciones y enviar notificaciones automáticas a los asesores.
 
-## Instrucciones de uso
+## 🧠 Tecnologías utilizadas
 
-1. Crea un archivo .env con tus claves basado en .env.example
-2. Instala dependencias: `pip install -r requirements.txt`
-3. Corre localmente: `flask --app bot run` o despliega en Railway
+- **Python + Flask** – Backend del bot
+- **OpenAI (GPT-4)** – Generación de respuestas inteligentes
+- **Twilio (WhatsApp API)** – Recepción y envío de mensajes
+- **Supabase** – Base de datos de leads e historial de conversación
+- **Telegram (opcional)** – Notificación alternativa
+- **Facebook Messenger (opcional)** – Canal adicional de atención
+- **Railway / Render / VPS** – Para despliegue en producción
 
-## Desarrollado por
+---
 
-MarcoDesarrollo
+## ⚙️ Instalación
+
+1. **Clona el repositorio:**
+
+```bash
+git clone git@github.com:MarcoDesarrollo/whatsapp-bot-temp.git
+cd whatsapp-bot-temp
