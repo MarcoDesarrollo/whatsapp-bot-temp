@@ -1,2 +1,17 @@
+# Entorno virtual
 venv/
+
+# Variables de entorno
 .env
+.env.*
+
+# Archivos de sistema
+.DS_Store
+
+# Compilados de Python
+__pycache__/
+*.pyc
+
+# Configs locales
+.idea/
+
